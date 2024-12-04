@@ -12,7 +12,7 @@ namespace ego_planner
     have_odom_ = false;
     have_recv_pre_agent_ = false;
 
-    /*  fsm param  */
+    // 读取参数
     nh.param("fsm/flight_type", target_type_, -1);
     nh.param("fsm/thresh_replan_time", replan_thresh_, -1.0);
     nh.param("fsm/thresh_no_replan_meter", no_replan_thresh_, -1.0);
@@ -32,39 +32,50 @@ namespace ego_planner
       nh.param("fsm/waypoint" + to_string(i) + "_z", waypoints_[i][2], -1.0);
     }
 
-    /* initialize main modules */
+    // 初始化主要模块
+    // 规划可视化
     visualization_.reset(new PlanningVisualization(nh));
+    // 规划器manager
     planner_manager_.reset(new EGOPlannerManager);
     planner_manager_->initPlanModules(nh, visualization_);
     planner_manager_->deliverTrajToOptimizer(); // store trajectories
     planner_manager_->setDroneIdtoOpt();
 
-    /* callback */
+    // 定时器回调函数
+    // FSM回调 //10ms
     exec_timer_ = nh.createTimer(ros::Duration(0.01), &EGOReplanFSM::execFSMCallback, this);
+    // 碰撞检测回调 //50ms
     safety_timer_ = nh.createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
 
+    // 订阅里程计
     odom_sub_ = nh.subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this);
 
+    // 集群模式，订阅轨迹
     if (planner_manager_->pp_.drone_id >= 1)
     {
       string sub_topic_name = string("/drone_") + std::to_string(planner_manager_->pp_.drone_id - 1) + string("_planning/swarm_trajs");
       swarm_trajs_sub_ = nh.subscribe(sub_topic_name.c_str(), 10, &EGOReplanFSM::swarmTrajsCallback, this, ros::TransportHints().tcpNoDelay());
     }
+    // 发布轨迹
     string pub_topic_name = string("/drone_") + std::to_string(planner_manager_->pp_.drone_id) + string("_planning/swarm_trajs");
     swarm_trajs_pub_ = nh.advertise<traj_utils::MultiBsplines>(pub_topic_name.c_str(), 10);
-
+    // 广播b样条
     broadcast_bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/broadcast_bspline_from_planner", 10);
     broadcast_bspline_sub_ = nh.subscribe("planning/broadcast_bspline_to_planner", 100, &EGOReplanFSM::BroadcastBsplineCallback, this, ros::TransportHints().tcpNoDelay());
 
+    // 发布b样条
     bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/bspline", 10);
+    // 发布可视化
     data_disp_pub_ = nh.advertise<traj_utils::DataDisp>("planning/data_display", 100);
 
     if (target_type_ == TARGET_TYPE::MANUAL_TARGET)
     {
+      // 收到路径点，触发规划
       waypoint_sub_ = nh.subscribe("/move_base_simple/goal", 1, &EGOReplanFSM::waypointCallback, this);
     }
     else if (target_type_ == TARGET_TYPE::PRESET_TARGET)
     {
+      // 收到trigger信号，规划到给定序列的下一个路径点
       trigger_sub_ = nh.subscribe("/traj_start_trigger", 1, &EGOReplanFSM::triggerCallback, this);
 
       ROS_INFO("Wait for 1 second.");
@@ -157,13 +168,18 @@ namespace ego_planner
 
   void EGOReplanFSM::planNextWaypoint(const Eigen::Vector3d next_wp)
   {
+    // 到目标位姿的全局规划，以及状态机跳转触发
+
+    // next_wp: 全局目标位姿
     bool success = false;
+    // 全局规划，直线连接，间隔4m
     success = planner_manager_->planGlobalTraj(odom_pos_, odom_vel_, Eigen::Vector3d::Zero(), next_wp, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
 
     // visualization_->displayGoalPoint(next_wp, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, 0);
 
     if (success)
     {
+      // 目标位姿设为末端位姿
       end_pt_ = next_wp;
 
       /*** display ***/
@@ -192,7 +208,7 @@ namespace ego_planner
         changeFSMExecState(REPLAN_TRAJ, "TRIG");
       }
 
-      // visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(1, 0, 0, 1), 0.3, 0);
+      visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(1, 0, 0, 1), 0.3, 0);
       visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
     }
     else
@@ -210,6 +226,7 @@ namespace ego_planner
 
   void EGOReplanFSM::waypointCallback(const geometry_msgs::PoseStampedPtr &msg)
   {
+    // 收到目标位姿，进行全局规划
     if (msg->pose.position.z < -0.1)
       return;
 
@@ -410,10 +427,13 @@ namespace ego_planner
     else
       continously_called_times_ = 1;
 
-    static string state_str[8] = {"INIT", "WAIT_TARGET", "GEN_NEW_TRAJ", "REPLAN_TRAJ", "EXEC_TRAJ", "EMERGENCY_STOP", "SEQUENTIAL_START"};
+    static string state_str[8] = {"INIT", "WAIT_TARGET", "GEN_NEW_TRAJ", "REPLAN_TRAJ", "EXEC_TRAJ", "EMERGENCY_STOP", "                "};
     int pre_s = int(exec_state_);
     exec_state_ = new_state;
-    cout << "[" + pos_call + "]: from " + state_str[pre_s] + " to " + state_str[int(new_state)] << endl;
+    string log_str = "[" + pos_call + "]: from " + state_str[pre_s] + " to " + state_str[int(new_state)];
+    cout << log_str << endl;
+    
+    ROS_INFO(log_str.c_str());
   }
 
   std::pair<int, EGOReplanFSM::FSM_EXEC_STATE> EGOReplanFSM::timesOfConsecutiveStateCalls()
@@ -430,6 +450,7 @@ namespace ego_planner
 
   void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
   {
+    // 周期为10ms+计算时间
     exec_timer_.stop(); // To avoid blockage
 
     static int fsm_num = 0;
@@ -459,6 +480,7 @@ namespace ego_planner
 
     case WAIT_TARGET:
     {
+      
       if (!have_target_ || !have_trigger_)
         goto force_return;
       // return;
@@ -470,6 +492,8 @@ namespace ego_planner
         // }
         // else
         // {
+        
+        // 完成全局规划后通过TRIG跳转GEN_NEW_TRAJ，不跳转这个状态
         changeFSMExecState(SEQUENTIAL_START, "FSM");
         // }
       }
@@ -483,6 +507,7 @@ namespace ego_planner
       {
         if (have_odom_ && have_target_ && have_trigger_)
         {
+          // 局部规划
           bool success = planFromGlobalTraj(10); // zx-todo
           if (success)
           {
@@ -550,6 +575,7 @@ namespace ego_planner
       double t_cur = (time_now - info->start_time_).toSec();
       t_cur = min(info->duration_, t_cur);
 
+      // 匹配路径点
       Eigen::Vector3d pos = info->position_traj_.evaluateDeBoorT(t_cur);
 
       /* && (end_pt_ - pos).norm() < 0.5 */
@@ -622,6 +648,7 @@ namespace ego_planner
     start_acc_.setZero();
 
     bool flag_random_poly_init;
+    // 当前状态周期计数
     if (timesOfConsecutiveStateCalls().first == 1)
       flag_random_poly_init = false;
     else

@@ -20,6 +20,8 @@
 #include <plan_manage/planner_manager.h>
 #include <traj_utils/planning_visualization.h>
 
+#include <ros/console.h>
+
 using std::vector;
 
 namespace ego_planner
@@ -32,19 +34,19 @@ namespace ego_planner
     /* ---------- flag ---------- */
     enum FSM_EXEC_STATE
     {
-      INIT,
-      WAIT_TARGET,
-      GEN_NEW_TRAJ,
-      REPLAN_TRAJ,
-      EXEC_TRAJ,
-      EMERGENCY_STOP,
-      SEQUENTIAL_START
+      INIT, // 初始化
+      WAIT_TARGET, // 等待目标
+      GEN_NEW_TRAJ, // 生成轨迹
+      REPLAN_TRAJ, // 重规划轨迹
+      EXEC_TRAJ, // 执行轨迹
+      EMERGENCY_STOP, // 急停
+      SEQUENTIAL_START // 连续启动
     };
     enum TARGET_TYPE
     {
-      MANUAL_TARGET = 1,
-      PRESET_TARGET = 2,
-      REFENCE_PATH = 3
+      MANUAL_TARGET = 1, // 手动目标
+      PRESET_TARGET = 2, // 预设目标
+      REFENCE_PATH = 3 // 参考路径
     };
 
     /* planning utils */

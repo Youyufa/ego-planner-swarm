@@ -458,14 +458,13 @@ namespace ego_planner
                                          const Eigen::Vector3d &end_pos, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc)
   {
 
-    // generate global reference trajectory
+    // 全局规划
 
     vector<Eigen::Vector3d> points;
     points.push_back(start_pos);
-    points.push_back(end_pos);
+    points.push_back(end_pos); // 目标位姿
 
-    // insert intermediate points if too far
-    vector<Eigen::Vector3d> inter_points;
+    vector<Eigen::Vector3d> inter_points; // 线性插值点
     const double dist_thresh = 4.0;
 
     for (size_t i = 0; i < points.size() - 1; ++i)
@@ -496,11 +495,12 @@ namespace ego_planner
 
     Eigen::Vector3d zero(0, 0, 0);
     Eigen::VectorXd time(pt_num - 1);
+    // 用最大速度规划时间
     for (int i = 0; i < pt_num - 1; ++i)
     {
       time(i) = (pos.col(i + 1) - pos.col(i)).norm() / (pp_.max_vel_);
     }
-
+    // 首尾时间双倍，因为起步和停止速度慢
     time(0) *= 2.0;
     time(time.rows() - 1) *= 2.0;
 
